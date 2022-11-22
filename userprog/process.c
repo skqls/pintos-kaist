@@ -4,7 +4,7 @@
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string.h> //strtok_r
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
 #include "filesys/directory.h"
@@ -159,35 +159,120 @@ error:
 }
 
 /* Switch the current execution context to the f_name.
- * Returns -1 on fail. */
+ * Returns -1 on fail. 
+ *
+ * 현재 실행중인 프로세스의 콘텍스트를 인자로 받은 f_name으로 콘텍스트 스위칭한다. 
+ * process_exec에 콘텍스트 스위칭의 기능이 있는 이유? -> 유휴 스레드를 포함해 어떤 스레드가 먼저 돌고 있었을 테니, 유저가 입력한 명령어를 실행하기 앞서 먼저 콘텍스트 스위칭 해줘야 한다.!
+ */
 int
-process_exec (void *f_name) {
-	char *file_name = f_name;
+process_exec (void *f_name) { //유저가 입력한 명령어를 토대로 프로그램의 메모리 적재 및 실행을 담당하는 함수. 여기에 파일 이름을 인자로 받아 문자열로 저장하지만 현재, 파일이름과 옵션이 분리가 되지 않은 상황이다. 
+	char *file_name = f_name; // f_name은 문자열인데 위에서 void* 로 넘겨받았으니, 문자열로 인식하기 위해서는 char형으로의 형변환이 필요하다. 
 	bool success;
+
+	/* --- Project 2: Command_line_parsing ---*/
+	// 원본 file name을 Copy해온다.
+	char file_name_copy[128]; // 스택에 저장한다
+	memcpy(file_name_copy, file_name, strlen(file_name)+1) //strlen은 센티널 문자를 포함하지 않으므로, 원 문자열에 포함된 센티널을 포함하고자 +1
+	/* --- Project 2: Command_line_parsing ---*/
+	//파싱 되기 전의 원본 문자열을 다른 함수에서 사용할 수 도 있드니, 미리 memcpy를 통해 복사본을 만들어준다. 
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
-	struct intr_frame _if;
+
+
+	//인터럽트 프레임이란? : 인터럽트 발생시, 콘텍스트 스위칭 전에 레지스터 안에 담긴 정보를 백업 해 놓는 구조체이다. 
+	struct intr_frame _if; // '인터럽트 프레임' 내 구조체 멤버 및 요소들에 필요한 정보를 담음.
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
+	
 
 	/* We first kill the current context */
 	process_cleanup ();
+	// 현재 스레드에 새로운 실행 파일을 담기 전에, 먼저 현재 프로세스에 할당된 page directory를 지움으로서, 현 프로세스에 담긴 context를 비워준다.
 
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	success = load (file_name, &_if); //_if 는 콘텍스트 스위칭에 필요한 정보를 담고있따. 
+	//file_name과 인터럽트 프레임을 현 프로세스에 load 한다. 
+	//load의 반환형이 bool type이므로, load에 성공시 success 는 1(실패시 0)
+	//이 떄 file_name은 파싱 된 f_name의 첫 문자열이다. 
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
 	if (!success)
 		return -1;
+
+	/* --- Project 2: Command_line_parsing ---*/
+	hex_dump(_if.rsp, _if.rsp, KERN_BASE - _if.rsp, true);
+	// palloc_free_page (file_name); // file_name : 프로그램 파일을 받기 위한 임시변수이니, load끝나면 메모리 반환해야. 
+	/* --- Project 2: Command_line_parsing ---*/
 
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
+
+
 }
+
+/* --- Project 2: Command_line_parsing ---*/
+/* 인자를 스택에 쌓음 */
+void argument_stack(char **argv, int argc, struct intr_frame *if_) { //if_ 가 인터럽스 스택 프레임으로, 여기에다 쌓음
+
+
+	/* insert arguments' address 
+	* 	인자들의 주소이므로, 포인터들의 배열인 포인터 배열로 받는 것이다.
+	*/ 
+	char *arg_address[128]; // char *arr[128]은 메모리 128곳을 가리키는 배열(포인터들의 배열... 배열의 요소가 포인터들로 이루어져 있다... 이때 배열 요소의 자료형이 char* !
+	
+	//거꾸로 삽입하는 이유는, 스택이 downward로 확장되기 떄문이다. 
+	
+	/* ex. 끝의 NULL 값(arg[4] 제외하고 스택에 저장한다 (arg[0] ~arg[3])*/
+	for (int i = argc-1; i>=0; i--) { 
+		int argv_len = strlen(argv[i]);
+		/* 
+		if_->rsp 는 현재 유저스택의 현 위치를 가리킨다. 
+		이떄 strlen을 이용, 각 인자의 크기를 읽는데, 이때 sentinel 이 빠져있으니 포함하고자 argv_len +1의 크기만큼 스택포인터를
+		내리고, 빈 공간에 memcpy를 해줌
+		 */
+		if_->rsp = if_->rsp - (argv_len + 1);
+		memcpy(if_->rsp, argv[i], argv_len+1);
+		arg_address[i] = if_->rsp; // arg_address 배열에 현재 문자열의 시작 주소 위치를 저장
+	}
+
+	/* word-align: 8의 배수 맞추기 위한 padding 삽입*/
+	while (if_->rsp % 8 != 0) //8의 배수가 될때까지, 주소값을 1씩 내리며, 
+	{
+		if_->rsp--; 
+		*(uint8_t *) if_->rsp = 0; // 빈 데이터 값에다 0을 삽입한다. (결국 8바이트 저장!)
+		//의문 : 화살표 연산자 인데, "*(uint8_t *) if_->r"이 아니라 (uint8_t *) if_->r 가 맞는 거 아닌가?
+	}
+
+	/* 센티널 포함해서 주소값 자체를 삽입*/
+	
+	for (int i = argc; i >=0; i--) 
+	{ 
+		// NULL 값 포인터도 같이 넣고, 
+		if_->rsp = if_->rsp - 8; // 스택 포인터를 8바이트만큼 내린다.
+		if (i == argc) { // 가장 위에는 NULL이 아닌 0을 넣는다.
+			memset(if_->rsp, 0, sizeof(char **));
+		} else { // 나머지에는 arg_address 안에 들어있는 값 가져오기
+			memcpy(if_->rsp, &arg_address[i], sizeof(char **)); // char 포인터 크기: 8바이트
+		}	
+	}
+	
+
+	/* fake return address */
+	if_->rsp = if_->rsp - 8; // void 포인터도 8바이트 크기이다.
+	memset(if_->rsp, 0, sizeof(void *));
+
+	if_->R.rdi  = argc;
+	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위는 arg_address 맨 앞 가리키는 주소값이다
+
+
+}
+
+
+
 
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -204,6 +289,11 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+
+	/* --- Project 2: Command_line_parsing ---*/
+	while (1){}
+	/* --- Project 2: Command_line_parsing ---*/
+
 	return -1;
 }
 
@@ -319,7 +409,11 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *RIP
  * and its initial stack pointer into *RSP.
- * Returns true if successful, false otherwise. */
+ * Returns true if successful, false otherwise. 
+ * 
+ * 	실행파일(ELF excutable)의 file_name을 메모리로 적재해 실행하고, rip(다음 실행할 명령어의 주소 보관함)에 엔트리 포인트를 저장
+ *  process_exec()이 'caller'로서, load()를 호출하게 되는데, 이 때 file_name 인자로, process_exec에서 받은 '명령 커맨드'전체가 들어온다.
+ * */
 static bool
 load (const char *file_name, struct intr_frame *if_) {
 	struct thread *t = thread_current ();
@@ -328,6 +422,21 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
+
+	/* --- Project 2: Command_line_parsing ---*/
+	char *arg_list[128];
+	char *token, *save_ptr; //함수 strtok_r에서 쓰기위한 임시 변수. save_ptr 는  문자열을 자르고 남은 문자열의 가장 앞을 가리키는 포인터의 주소값이다. 
+	int token_count = 0;
+	
+	token = strtok_r(file_name, " ",  &save_ptr); //첫번째 이름이 나올 것
+	arg_list[token_count] = token;
+
+	while (token != NULL) {
+		token = strtok_r (NULL, " ", &save_ptr);
+		token_count++;
+		arg_list[token_count] = token;
+	}
+	/* --- Project 2: Command_line_parsing ---*/
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -415,7 +524,13 @@ load (const char *file_name, struct intr_frame *if_) {
 	if_->rip = ehdr.e_entry;
 
 	/* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	 * TODO: Implement argument passing (see project2/argument_passing.html). 
+	 * argument passing(인자값을 스택에 올리는 argument_stack() 실행!)
+	 * arg_list는 문자열의 배열! 첫번째 문자열의 주소가 주어지며, 각 문자열들 간에는 널문자로 구분된다. 128칸에는 문자열의 문자가 담기거나, 문자열간 구분을 위한 널문자가 담긴다. 
+	 */
+	/* --- Project 2: Command_line_parsing ---*/
+	argument_stack(arg_list, token_count, if_); // 인터럽트 프레임을 인자로 받는 것은, 인터럽트 프레임 자체를 스택에 올리고자 한 것이 아니고, 인터럽트 프레임의 구조체 내 특정값인 rsp에 인자를 넘겨주기 위해서이다. 이후 do_iret()이 이 인터럽트 프레임을 스택에 올림.
+	/* --- Project 2: Command_line_parsing ---*/
 
 	success = true;
 

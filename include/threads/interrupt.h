@@ -16,7 +16,7 @@ enum intr_level intr_enable (void);
 enum intr_level intr_disable (void);
 
 /* Interrupt stack frame. */
-struct gp_registers {
+struct gp_registers { //인터럽트 스택 프레임. 기존 작업중인 프로세스의 콘텍스트를 저장하기 위한 구조체
 	uint64_t r15;
 	uint64_t r14;
 	uint64_t r13;
@@ -37,7 +37,7 @@ struct gp_registers {
 struct intr_frame {
 	/* Pushed by intr_entry in intr-stubs.S.
 	   These are the interrupted task's saved registers. */
-	struct gp_registers R;
+	struct gp_registers R; //콘텍스트 스위칭 전에 이 'R'에 기존 스레드의 레지스터 안 작업값 및 기타 사항을 스택에 백업해 둔다. 즉, 그런 용도로 만들어 진 구조체이다!
 	uint16_t es;
 	uint16_t __pad1;
 	uint32_t __pad2;
