@@ -172,7 +172,7 @@ process_exec (void *f_name) { //유저가 입력한 명령어를 토대로 프�
 	/* --- Project 2: Command_line_parsing ---*/
 	// 원본 file name을 Copy해온다.
 	char file_name_copy[128]; // 스택에 저장한다
-	memcpy(file_name_copy, file_name, strlen(file_name)+1) //strlen은 센티널 문자를 포함하지 않으므로, 원 문자열에 포함된 센티널을 포함하고자 +1
+	memcpy(file_name_copy, file_name, strlen(file_name)+1); //strlen은 센티널 문자를 포함하지 않으므로, 원 문자열에 포함된 센티널을 포함하고자 +1
 	/* --- Project 2: Command_line_parsing ---*/
 	//파싱 되기 전의 원본 문자열을 다른 함수에서 사용할 수 도 있드니, 미리 memcpy를 통해 복사본을 만들어준다. 
 
@@ -216,7 +216,7 @@ process_exec (void *f_name) { //유저가 입력한 명령어를 토대로 프�
 
 /* --- Project 2: Command_line_parsing ---*/
 /* 인자를 스택에 쌓음 */
-void argument_stack(char **argv, int argc, struct intr_frame *if_) { //if_ 가 인터럽스 스택 프레임으로, 여기에다 쌓음
+void argument_stack(char **argv, int argc, struct intr_frame *if_) { //if_ 가 인터럽트 스택 프레임으로, 여기에다 쌓음
 
 
 	/* insert arguments' address 
@@ -232,7 +232,7 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { //if_ 가 �
 		/* 
 		if_->rsp 는 현재 유저스택의 현 위치를 가리킨다. 
 		이떄 strlen을 이용, 각 인자의 크기를 읽는데, 이때 sentinel 이 빠져있으니 포함하고자 argv_len +1의 크기만큼 스택포인터를
-		내리고, 빈 공간에 memcpy를 해줌
+		내리고, 늘려준 공간에 memcpy를 해줌
 		 */
 		if_->rsp = if_->rsp - (argv_len + 1);
 		memcpy(if_->rsp, argv[i], argv_len+1);
@@ -261,13 +261,14 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { //if_ 가 �
 	}
 	
 
-	/* fake return address */
-	if_->rsp = if_->rsp - 8; // void 포인터도 8바이트 크기이다.
+	
+
+	if_->R.rsi = if_->rsp;
+	if_->R.rdi = argc;
+
+	/* fake address(0) 저장*/
+	if_->rsp = if_->rsp - 8;
 	memset(if_->rsp, 0, sizeof(void *));
-
-	if_->R.rdi  = argc;
-	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위는 arg_address 맨 앞 가리키는 주소값이다
-
 
 }
 
@@ -283,7 +284,10 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { //if_ 가 �
  * immediately, without waiting.
  *
  * This function will be implemented in problem 2-2.  For now, it
- * does nothing. */
+ * does nothing. 
+ * 
+ * hex_dump를 이용하고 싶지만, 현재, 자식 프로세스를 기다리는 도중에 -1이 리턴되어 오류발생. 따라서 pintos에게 형재 자식을 기다리고 있다고 (속이기) 위해, 무한 루프를 건다. 
+ * */
 int
 process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you

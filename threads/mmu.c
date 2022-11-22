@@ -209,7 +209,14 @@ pml4_activate (uint64_t *pml4) {
 /* Looks up the physical address that corresponds to user virtual
  * address UADDR in pml4.  Returns the kernel virtual address
  * corresponding to that physical address, or a null pointer if
- * UADDR is unmapped. */
+ * UADDR is unmapped. 
+ * 
+ * pml4(Page Map Level 4) :모든 스레드가 각각 가지는 페이지 테이블로서, 가상 메모리와 물리 메모리간 매핑을 관리. 매핑 정보를
+ * 관리하고자 Page Table 을 찾았는데, 매칭되는 kva가 없다면 Page Fault 발생한다. 
+ * 
+ * 페이지 폴트: 사용자가 임의의 가상주소에 접근하려 할 떄, thread는 해당 주소가 포함된 page의 주소(va...데이터가 저장된 가상주소의 시작점)를 찾고, 
+ * 이에 해당하는 물리주소(kva..kernel virtual address)가 있는지 page table에서 찾은뒤 ,매칭된 정보가 없을 시 page fault를 발생
+ * */
 void *
 pml4_get_page (uint64_t *pml4, const void *uaddr) {
 	ASSERT (is_user_vaddr (uaddr));
