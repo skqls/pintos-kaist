@@ -28,6 +28,12 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+/* --- project 2: system call --- */
+
+#define FDT_PAGES 3
+#define FDCOUNT_LIMIT FDT_PAGES *(1<<9) // limit fdidx
+/* --- project 2: system call --- */
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -85,7 +91,7 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
-struct thread {
+struct thread { //핀토스는 싱글 스레드이므로, struct thread가 바로 프로세스 디스크립터이다. 
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
@@ -107,6 +113,15 @@ struct thread {
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
+
+    /* --- Project2: User programs - system call --- */
+    int exit_status; // _exit(), _wait() 구현 때 사용한다. 
+	struct file **file_descriptor_table; //FDT
+	int fdidx; // fd index
+    
+	// fdt 또한 하나의 파일 구조체 형태이다. 따라서 스레드 구조체 내 파일 구조체의 형태로 fdt를 선언한다. 
+	// 해당 스레드에서 여러 파일을 관리하게 될테니, 해당 파일에 대한 인덱스 값을 넣고자 fdidx 를 선언한다. 
+    /* --- Project2: User programs - system call --- */
 };
 
 /* If false (default), use round-robin scheduler.

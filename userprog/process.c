@@ -4,7 +4,7 @@
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h> //strtok_r
+#include <string.h> //strtok_r 
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
 #include "filesys/directory.h"
@@ -37,7 +37,12 @@ process_init (void) {
  * The new thread may be scheduled (and may even exit)
  * before process_create_initd() returns. Returns the initd's
  * thread id, or TID_ERROR if the thread cannot be created.
- * Notice that THIS SHOULD BE CALLED ONCE. */
+ * Notice that THIS SHOULD BE CALLED ONCE. <- 첫 프로세스 생성시에만 initd() 쓰임!
+ * 
+ * 
+ * 
+ * 
+ * */
 tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy;
@@ -50,14 +55,21 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	/* project 2. command line parsing */
+	// 프로세스 이름만을(args-single) 프로세스 이름으로 넘겨주어야 하므로, 파싱 작업을 추가해준다.  
+	char *token, *last;
+	token = strtok_r(file_name, " ", &last);
+	tid = thread_create (token, PRI_DEFAULT, initd, fn_copy);
+	/* project 2. command line parsing */
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy); //initd()는 첫번째 유저 프로세스를 실행하는 함수. 그 이후부터는 fork()로 프로세스를 생성한다. "Notice that THIS SHOULD BE CALLED ONCE." 의 이유!
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
 }
 
-/* A thread function that launches first user process. */
+/* A thread function that launches first user process. ..첫 번째 프로세스 생성시에만 쓰임에 유의! */
 static void
 initd (void *f_name) {
 #ifdef VM
@@ -163,6 +175,11 @@ error:
  *
  * 현재 실행중인 프로세스의 콘텍스트를 인자로 받은 f_name으로 콘텍스트 스위칭한다. 
  * process_exec에 콘텍스트 스위칭의 기능이 있는 이유? -> 유휴 스레드를 포함해 어떤 스레드가 먼저 돌고 있었을 테니, 유저가 입력한 명령어를 실행하기 앞서 먼저 콘텍스트 스위칭 해줘야 한다.!
+ *
+ * process_exec의 역할 
+ * 1. argument_parsing
+ * 2. 유저 커널 스택에 정보올리기 (load)
+ * 
  */
 int
 process_exec (void *f_name) { //유저가 입력한 명령어를 토대로 프로그램의 메모리 적재 및 실행을 담당하는 함수. 여기에 파일 이름을 인자로 받아 문자열로 저장하지만 현재, 파일이름과 옵션이 분리가 되지 않은 상황이다. 

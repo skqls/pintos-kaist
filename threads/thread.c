@@ -112,7 +112,9 @@ thread_init (void) {
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
-	init_thread (initial_thread, "main", PRI_DEFAULT);
+	init_thread (initial_thread, "main", PRI_DEFAULT); // "main"이라는 이름을 인자로 받아 init_thread가 실행된다. 
+	 													// init_thread() 의 역할은, 해당 스레드에 메모리 세팅 및, 스레드 구조체 내 인터럽트 프레임(pcb라 생각해도 무방..?)속 멤버인 
+														// tf의 하위 멤버인 rsp에 커널 스택 포인터 위치 저장. 
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
 }
@@ -204,10 +206,22 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+		/* --- project 2: system call --- */ // 주의요망.. 삭제해야할까? 
+	t->file_descriptor_table = palloc_get_multiple(PAL_ZERO, FDT_PAGES);
+	if (t->file_descriptor_table == NULL) {
+		return TID_ERROR;
+	}
+	t->fdidx = 2; // 0은 stdin, 1은 stdout에 이미 할당
+	t->file_descriptor_table[0] = 1; // stdin 자리: 1 배정
+	t->file_descriptor_table[1] = 2; // stdout 자리: 2 배정
+			/* --- project 2: system call --- */
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
 	return tid;
+
+
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -409,6 +423,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	/* project 2: system call*/
+	t->exit_status = 0;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

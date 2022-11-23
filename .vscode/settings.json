@@ -1,6 +1,13 @@
 {
     "files.associations": {
         "thread.h": "c",
-        "list.h": "c"
+        "list.h": "c",
+        "array": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "utility": "c",
+        "syscall-nr.h": "c",
+        "interrupt.h": "c",
+        "loader.h": "c"
     }
 }

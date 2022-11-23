@@ -45,7 +45,9 @@
 
 // FIXME: add checking
 /* Returns kernel virtual address at which physical address PADDR
- *  is mapped. */
+ *  is mapped. 
+ * 베이스 & 바운드 방식(physical addr = virtual addr + base).
+ */
 #define ptov(paddr) ((void *) (((uint64_t) paddr) + KERN_BASE))
 
 /* Returns physical address at which kernel virtual address VADDR
