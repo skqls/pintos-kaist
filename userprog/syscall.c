@@ -185,7 +185,6 @@ bool remove (const char *file) {
 	}
 }
 
-//write() 일부 구현 중...
 /*
 파일 디스크립터 번호(fd)는 동작에 대한 수행 자격을 부여하는 역할(핸들러)을 한다. 
 즉,  write()에서 fd값이 STDOUT_FILENO와 같은지를 체크한다. 
@@ -439,7 +438,7 @@ void seek(int fd, unsigned position) {
 	
 	file_seek(file, position);
 
-/*
+/*~
 tell()은 seek()와 비슷하다. 파일을 읽을 때, 어디서부터 읽어야 하는지에 대한 pos를 파일의 구조체 멤버에 정보로 저장한다. 
 tell()함수는 fd 값을 인자로 넣으면 해당 파일의 pos를 반환한다. 
 */
@@ -456,8 +455,7 @@ unsigned tell (int fd) {
 }
 
 /*
-파일 식별자 fd를 닫습니다. 
-프로세스를 나가거나 종료하는 것은 묵시적으로 그 프로세스의 열려있는 파일 식별자들을 닫습니다. 
-마치 각 파일 식별자에 대해 이 함수가 호출된 것과 같습니다. 
+현재 열려있는 파일을 fdt에서 찾아 파일 식별자(fd)를 닫아준다. 
+
 */
 void close (int fd);
