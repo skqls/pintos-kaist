@@ -28,11 +28,11 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+
 /* --- project 2: system call --- */
 
 #define FDT_PAGES 3
 #define FDCOUNT_LIMIT FDT_PAGES *(1<<9) // limit fdidx
-/* --- project 2: system call --- */
 
 /* A kernel thread or user process.
  *
@@ -91,19 +91,30 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
-struct thread { //핀토스는 싱글 스레드이므로, struct thread가 바로 프로세스 디스크립터이다. 
+struct thread { // 이 struct thread 자체가 프로세스 디스크립터
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	/*---Project 1.4 Priority donation ---*/
+	int init_priority; // thread의 priority는 donation에 의해 매번 바뀔 수 있음. 그러니 맨 처음에 할당받은 priority를 기억해둬야!
+	struct lock *wait_on_lock; // 해당 스레드가 대기하고 있는 lock 자료구조 주소 저장: thread가 원하는 lock을 이미 다른 thread가 점유하고 있으면 lock의 주소를 저장한다.
+	struct list donations; // multiple donation 고려하기 위해 사용: A thread가 B thread에 의해 priority가 변경됐다면 A thread의 list donations에 B 스레드를 기억해놓는다.
+	struct list_elem donation_elem; // multiple donation 고려하기 위해 사용: B thread는 A thread의 기부자 목록에 자신 이름 새겨놓아야! 이를 donation_elem!
 
-	/* Shared between thread.c and synch.c. */
+	/* Shared between thread.c and synch.c. & list.c도! */
 	struct list_elem elem;              /* List element. */
+
+	/*---Project 1.1---*/
+	/* ---깨어나야 할 tick 저장--- */
+	int64_t wakeup_tick;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	/*---Project 2: Process Priority---*/
+	
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -114,14 +125,19 @@ struct thread { //핀토스는 싱글 스레드이므로, struct thread가 바�
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 
-    /* --- Project2: User programs - system call --- */
-    int exit_status; // _exit(), _wait() 구현 때 사용한다. 
+	/* --- Project2: User programs - system call --- */
+	int exit_status; // _exit(), _wait() 구현 때 사용
 	struct file **file_descriptor_table; //FDT
 	int fdidx; // fd index
-    
+
 	// fdt 또한 하나의 파일 구조체 형태이다. 따라서 스레드 구조체 내 파일 구조체의 형태로 fdt를 선언한다. 
 	// 해당 스레드에서 여러 파일을 관리하게 될테니, 해당 파일에 대한 인덱스 값을 넣고자 fdidx 를 선언한다. 
     /* --- Project2: User programs - system call --- */
+	
+	struct intr_frame parent_if; // _fork() 구현 때 사용, __do_fork() 함수
+	struct list child_list; // _wait() 구현 때 사용, process_wait() 함수
+	struct list_elem child_elem; // _wait() 구현 때 사용, process_wait() 함수
+	// struct semaphore fork_sema; // _fork() 구현 시 사용, __do_fork() 함수 
 };
 
 /* If false (default), use round-robin scheduler.
@@ -148,6 +164,26 @@ const char *thread_name (void);
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
+/*----project 1.1: Alarm Clock------*/
+
+/* 실행 중인 스레드를 슬립으로 재운다. */
+void thread_sleep(int64_t ticks);
+/* 슬립 큐에서 깨워야 할 스레드를 깨운다. */
+void thread_awake(int64_t ticks);
+/* 최소 틱을 가진 스레드를 저장한다. */
+void update_next_tick_to_awake(int64_t ticks);
+/* thread.c의 next_tick_to_awake 반환 */
+int64_t get_next_tick_to_awake(void);
+
+
+/* ----Project 1.2: Priority Scheduling---- */
+void test_max_priority (void);
+bool cmp_priority (const struct list_elem *a,
+					const struct list_elem *b,
+					void *aux UNUSED);
+
+
+
 int thread_get_priority (void);
 void thread_set_priority (int);
 
@@ -159,3 +195,11 @@ int thread_get_load_avg (void);
 void do_iret (struct intr_frame *tf);
 
 #endif /* threads/thread.h */
+
+/* ----Project 1.4: Priority donation---- */
+void donate_priority(void);
+void remove_with_lock(struct lock *lock);
+void refresh_priority(void);
+
+/* --- project 1.4 --- */
+bool thread_compare_donate_priority(const struct list_elem *l, const struct list_elem *s, void *aux);

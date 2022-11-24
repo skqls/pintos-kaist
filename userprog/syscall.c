@@ -12,10 +12,42 @@
 #include "filesys/file.h" 
 #include "userprog/gdt.h"
 #include "intrinsic.h"
+#include "palloc.h"
+#include "lib/user/syscall.h"
 
+#define	STDIN_FILENO	0
+#define	STDOUT_FILENO	1
+
+#define MAX_FD_NUM	(1<<9)
+void check_address(void *addr);
+struct file *fd_to_struct_filep(int fd);
+int add_file_to_fd_table(struct file *file);
+void remove_file_from_fd_table(int fd);
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
+void halt (void);
+void exit (int);
+void close (int fd);
+bool create (const char *file , unsigned initial_size);
+bool remove (const char *file);
+int open (const char *file);
+int read(int fd, void *buffer, unsigned size);
+int write (int fd, const void *buffer, unsigned size);
+int filesize(int fd);
+
+void seek(int fd, unsigned position);
+unsigned tell (int fd);
+
+void close (int fd);
+int exec(char *file_name);
+pid_t fork (const char *thread_name, struct intr_frame *f);
+
+void syscall_entry (void);
+void syscall_handler (struct intr_frame *);
+// pid_t fork (const char *thread_name);
+
 
 /* System call.
  *
@@ -24,31 +56,15 @@ void syscall_handler (struct intr_frame *);
  * efficient path for requesting the system call, the `syscall` instruction.
  *
  * The syscall instruction works by reading the values from the the Model
- * Specific Register (MSR). For the details, see the manual.
- * 
- * 
- * syscall 명령(어셈블리어)은 x86-64에서 시스템 콜을 호출하는 가장 일반적 수단. 
- * 즉, syscall은 사용자 프로그램이 시스템콜을 호출하기 위한 수단. 
- *  */
+ * Specific Register (MSR). For the details, see the manual. */
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
 
-void 
-check_address(void *addr) {
-	struct thread *t = thread_current();
-	/* --- Project 2: User memory access --- */
-	// if (!is_user_vaddr(addr)||addr == NULL) 
-	//-> 이 경우는 유저 주소 영역 내에서도 할당되지 않는 공간 가리키는 것을 체크하지 않음. 그래서 
-	// pml4_get_page를 추가해줘야!
-	if (!is_user_vaddr(addr)||addr == NULL||
-	pml4_get_page(t->pml4, addr)== NULL)
-	{
-		exit(-1);
-	}
-}
-
+struct lock filesys_lock;
 
 void
 syscall_init (void) {
@@ -68,6 +84,10 @@ syscall_init (void) {
 }
 
 
+
+/* --- Project 2: system call --- */
+
+/* The main system call interface */
 /*
 * 특정 작업은 유저 프로그램에서 직접 다루지 (접근하지) 못하니, 커널에다 시스템콜을 날리면, 커널이 대신 작업을 해준 뒤 결과값만 
 * 해당 사항을 요청한 프로그램에게 넘겨준다. (isolation 차원에서 보안 상 장점도 있다)
@@ -140,6 +160,20 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	//printf("%d", sys_number);
 }
 
+void 
+check_address(void *addr) {
+	struct thread *t = thread_current();
+	/* --- Project 2: User memory access --- */
+	// if (!is_user_vaddr(addr)||addr == NULL) 
+	//-> 이 경우는 유저 주소 영역 내에서도 할당되지 않는 공간 가리키는 것을 체크하지 않음. 그래서 
+	// pml4_get_page를 추가해줘야!
+	if (!is_user_vaddr(addr)||addr == NULL||
+	pml4_get_page(t->pml4, addr)== NULL)
+	{
+		exit(-1);
+	}
+}
+
 
 /* 호출 될 시 pintos를 종료시키는 시스템 콜 */
 void halt(void){
@@ -163,7 +197,15 @@ void exit(int status)
 	thread_exit();
 }
 
-/*  파일 생성 시스템 콜 */
+
+
+/*
+위의 함수는 file(첫 번째 인자)를 이름으로 하고 크기가 initial_size(두 번째 인자)인 새로운 파일을 생성합니다.
+ 성공적으로 파일이 생성되었다면 true를 반환하고, 실패했다면 false를 반환합니다. 
+ 새로운 파일을 생성하는 것이 그 파일을 여는 것을 의미하지는 않습니다: 
+ 파일을 여는 것은 open 시스템콜의 역할로, ‘생성’과 개별적인 연산입니다.
+
+*/
 bool create (const char *file, unsigned initial_size) {
 	/* 성공이면 true, 실패면 false */
 	check_address(file);
@@ -175,7 +217,14 @@ bool create (const char *file, unsigned initial_size) {
 	}
 }
 
-/* 파일 제거 시스템 콜 */
+
+/*
+위의 함수는 file(첫 번째)라는 이름을 가진 파일을 삭제합니다. 
+성공적으로 삭제했다면 true를 반환하고, 그렇지 않으면 false를 반환합니다.
+ 파일은 열려있는지 닫혀있는지 여부와 관계없이 삭제될 수 있고, 
+ 파일을 삭제하는 것이 그 파일을 닫았다는 것을 의미하지는 않습니다. 
+
+*/
 bool remove (const char *file) {
 	check_address(file);
 	if (filesys_remove(file)) {
@@ -184,6 +233,60 @@ bool remove (const char *file) {
 		return false;
 	}
 }
+
+/* 
+부모 프로세스를 복사해 자식 프로세스를 만든다. 성공시 부모에게는 자식 pid를 반환하며, 실패시 -1반환
+자식은 0을 반환받는다. 
+ */
+pid_t fork (const char *thread_name, struct intr_frame *f) {
+	return process_fork(thread_name, f);
+}
+
+
+/*
+exec 함수 : 현재의 프로세스가 cmd_line에서 이름이 주어지는 실행가능한 프로세스로 변경된다. 
+먼저 check_address로 file_name의 유효성을 확인한다. 그리고 palloc_get_page()로 메모리를 할당하고
+ strlcpy() 함수를 이용해, file_name을 fn_copy로 복사한다. 
+ 복사하는 이유는 caller와 load()간 경쟁조건(race condition)을 방지하고자 함이며, process_exec 함수를 호출해 
+ 해당 프로세스를 메모리에 load한다. 그리고 정보를 스택에 쌓고 오류 발생시 -1을 반환  
+*/
+int exec(char *file_name){
+	check_address(file_name);
+
+	int size = strlen(file_name) + 1;
+	char *fn_copy = palloc_get_page(PAL_ZERO);
+	if ((fn_copy) == NULL) {
+		exit(-1);
+	}
+	strlcpy(fn_copy, file_name, size);
+
+	if (process_exec(fn_copy) == -1) {
+		return -1;
+	}
+
+	NOT_REACHED();
+	return 0;
+	
+}
+
+
+/*
+자식 프로세스 (pid) 를 기다려서 자식의 종료 상태(exit status)를 가져옵니다. 
+만약 pid (자식 프로세스)가 아직 살아있으면, 종료 될 때 까지 기다립니다. 
+종료가 되면 그 프로세스가 exit 함수로 전달해준 상태(exit status)를 반환합니다. 
+
+만약 pid (자식 프로세스)가 exit() 함수를 호출하지 않고 커널에 의해서 종료된다면 (e.g exception에 의해서 죽는 경우), 
+wait(pid) 는  -1을 반환해야 합니다. 
+
+부모 프로세스가 wait 함수를 호출한 시점에서 이미 종료되어버린 자식 프로세스를 기다리도록 하는 것은 완전히 합당합니다만, 
+커널은 부모 프로세스에게 자식의 종료 상태를 알려주든지, 커널에 의해 종료되었다는 사실을 알려주든지 해야 합니다.
+*/
+int wait (tid_t pid)
+{
+	process_wait(pid);
+};
+
+
 
 /*
 파일 디스크립터 번호(fd)는 동작에 대한 수행 자격을 부여하는 역할(핸들러)을 한다. 
@@ -223,7 +326,6 @@ int write (int fd, const void *buffer, unsigned size) {
 	return read_count;
 }
 
-
 /* Writes the N characters in BUFFER to the console. 
 
 putbuf(): buffer 안에 들어있는 값 중 size_t n 만큼 console로 출력
@@ -236,63 +338,6 @@ putbuf (const char *buffer, size_t n) {
 		putchar_have_lock (*buffer++);
 	release_console ();
 }
-
-
-
-/*
-THREAD_NAME이라는 이름을 가진 현재 프로세스의 복제본인 새 프로세스를 만드는 함수.
-피호출자(callee) 저장 레지스터인 %RBX, %RSP, %RBP와 %R12 - %R15를 제외한 레지스터 값을 복제할 필요 x!
-자식 프로세스의 pid를 반환. (자식 프로세스에서 반환 값은 0이다. )
-
-부모 프로세스는 자식 프로세스가 성공적으로 복제되었는지 여부를 알 때까지 fork에서 반환해서는 안 된다.
-(즉, 자식 프로세스가 리소스를 복제하지 못하면 부모의 fork() 호출이 TID_ERROR를 반환할 것입니다.)
-*/
-pid_t fork (const char *thread_name);
-
-
-
-/*
-현재의 프로세스가 cmd_line에서 이름이 주어지는 실행가능한 프로세스로 변경된다. 
-이때 주어진 인자들을 전달하고, 성공적으로 진행된다면 어떤 것도 반환하지 않습니다. 
-만약 프로그램이 이 프로세스를 로드하지 못하거나 다른 이유로 돌리지 못하게 되면 exit state -1을 반환하며 프로세스가 종료 
-이 함수는 exec 함수를 호출한 쓰레드의 이름은 바꾸지 않습니다. 
-file descriptor는 exec 함수 호출 시에 열린 상태로 있다는 것을 알아두세요.
-*/
-int exec (const char *cmd_line);
-
-
-/*
-자식 프로세스 (pid) 를 기다려서 자식의 종료 상태(exit status)를 가져옵니다. 
-만약 pid (자식 프로세스)가 아직 살아있으면, 종료 될 때 까지 기다립니다. 
-종료가 되면 그 프로세스가 exit 함수로 전달해준 상태(exit status)를 반환합니다. 
-
-만약 pid (자식 프로세스)가 exit() 함수를 호출하지 않고 커널에 의해서 종료된다면 (e.g exception에 의해서 죽는 경우), 
-wait(pid) 는  -1을 반환해야 합니다. 
-
-부모 프로세스가 wait 함수를 호출한 시점에서 이미 종료되어버린 자식 프로세스를 기다리도록 하는 것은 완전히 합당합니다만, 
-커널은 부모 프로세스에게 자식의 종료 상태를 알려주든지, 커널에 의해 종료되었다는 사실을 알려주든지 해야 합니다.
-*/
-int wait (pid_t pid);
-
-
-/*
-위의 함수는 file(첫 번째 인자)를 이름으로 하고 크기가 initial_size(두 번째 인자)인 새로운 파일을 생성합니다.
- 성공적으로 파일이 생성되었다면 true를 반환하고, 실패했다면 false를 반환합니다. 
- 새로운 파일을 생성하는 것이 그 파일을 여는 것을 의미하지는 않습니다: 
- 파일을 여는 것은 open 시스템콜의 역할로, ‘생성’과 개별적인 연산입니다.
-
-*/
-bool create (const char *file, unsigned initial_size);
-
-/*
-위의 함수는 file(첫 번째)라는 이름을 가진 파일을 삭제합니다. 
-성공적으로 삭제했다면 true를 반환하고, 그렇지 않으면 false를 반환합니다.
- 파일은 열려있는지 닫혀있는지 여부와 관계없이 삭제될 수 있고, 
- 파일을 삭제하는 것이 그 파일을 닫았다는 것을 의미하지는 않습니다. 
-
-*/
-bool remove (const char *file);
-
 
 
 /*
@@ -326,6 +371,8 @@ int open (const char *file) {
 	return fd;
 
 }
+
+
 
 
  /* 파일을 현재 프로세스의 fdt에 추가 */
@@ -372,6 +419,8 @@ int filesize(int fd) {
 		return -1;
 	}
 	file_length(fileobj);
+}
+
 
 /*
 buffer 안에 fd 로 열려있는 파일로부터 size 바이트를 읽습니다.
@@ -379,7 +428,6 @@ buffer 안에 fd 로 열려있는 파일로부터 size 바이트를 읽습니다
  (파일 끝에서 시도하면 0). 파일이 읽어질 수 없었다면 -1을 반환합니다.
  (파일 끝이라서가 아닌 다른 조건에 때문에 못 읽은 경우)
 */
-
 int read(int fd, void *buffer, unsigned size) {
 	// 유효한 주소인지부터 체크
 	check_address(buffer); // 버퍼 시작 주소 체크
@@ -388,6 +436,10 @@ int read(int fd, void *buffer, unsigned size) {
 	int read_count;
 	
 	struct file *fileobj = fd_to_struct_filep(fd);
+
+	if (fd < 0 || fd >= FDCOUNT_LIMIT) {
+		return;
+	}
 
 	if (fileobj == NULL) {
 		return -1;
@@ -405,7 +457,7 @@ int read(int fd, void *buffer, unsigned size) {
 		}
 	}
 	/* STDOUT일 때: -1 반환 */
-	else if (fd == STDOUT_FILENO){
+	else if (fd == STDOUT_FILENO) {
 		return -1;
 	}
 
@@ -413,10 +465,10 @@ int read(int fd, void *buffer, unsigned size) {
 		lock_acquire(&filesys_lock);
 		read_count = file_read(fileobj, buffer, size); // 파일 읽어들일 동안만 lock 걸어준다.
 		lock_release(&filesys_lock);
-
 	}
 	return read_count;
 }
+
 
 /*
 인자로 받은 fd를 이용해 먼저 파일을 찾은 뒤, 해당 파일 객체의 pos를 인자로 받은 position으로 변경.
@@ -437,8 +489,10 @@ void seek(int fd, unsigned position) {
 	}
 	
 	file_seek(file, position);
+}
 
-/*~
+
+/*
 tell()은 seek()와 비슷하다. 파일을 읽을 때, 어디서부터 읽어야 하는지에 대한 pos를 파일의 구조체 멤버에 정보로 저장한다. 
 tell()함수는 fd 값을 인자로 넣으면 해당 파일의 pos를 반환한다. 
 */
@@ -454,8 +508,23 @@ unsigned tell (int fd) {
 	return file_tell(fd);
 }
 
+
+
 /*
 현재 열려있는 파일을 fdt에서 찾아 파일 식별자(fd)를 닫아준다. 
-
 */
-void close (int fd);
+void close (int fd) {
+	if (fd < 2) {
+		return;
+	}
+	struct file *file = fd_to_struct_filep(fd);
+	check_address(file);
+	if (file == NULL) {
+		return;
+	
+	if (fd < 0 || fd >= FDCOUNT_LIMIT) {
+		return;
+	}
+	thread_current()->file_descriptor_table[fd] = NULL;
+	}
+}

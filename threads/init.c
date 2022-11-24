@@ -64,9 +64,7 @@ static void print_stats (void);
 
 int main (void) NO_RETURN;
 
-/* Pintos main program. 
-* 에뮬레이터가 실행되고나면 핀토스가 부팅이 되는데, 핀토스의 부팅은 init.c의 실행과 함께 시작된다. 
-*/
+/* Pintos main program. */
 int
 main (void) {
 	uint64_t mem_end;
@@ -81,7 +79,7 @@ main (void) {
 
 	/* Initialize ourselves as a thread so we can use locks,
 	   then enable console locking. */
-	thread_init (); //스레드를 초기화 하는 함수 (이곳에서 main 스레드가 실행된다.)
+	thread_init ();
 	console_init ();
 
 	/* Initialize memory system. */
@@ -179,7 +177,7 @@ read_command_line (void) {
 	int i;
 
 	argc = *(uint32_t *) ptov (LOADER_ARG_CNT);
-	p = ptov (LOADER_ARGS); //physical to vertual memory? 아마.. 물리주소에 KERN_BASE 만큼 더해 가상주소로 변경하는 시스템..
+	p = ptov (LOADER_ARGS);
 	end = p + LOADER_ARGS_LEN;
 	for (i = 0; i < argc; i++) {
 		if (p >= end)

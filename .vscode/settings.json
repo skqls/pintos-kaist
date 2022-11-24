@@ -8,6 +8,7 @@
         "utility": "c",
         "syscall-nr.h": "c",
         "interrupt.h": "c",
-        "loader.h": "c"
+        "loader.h": "c",
+        "input.h": "c"
     }
 }
